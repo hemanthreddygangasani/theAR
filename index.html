@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AR Wedding Invite</title>
+    <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+    
+    <script src="https://aframe.io/releases/1.2.0/aframe.min.js"></script>
+    <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
+
+    <script>
+        AFRAME.registerComponent("button-action", {
+            schema: { type: "string" },
+            init: function () {
+                this.el.addEventListener("click", () => {
+                    if (this.data === "navigate") {
+                        // Forces the browser to load the navigation page
+                        window.location.assign("navigate.html");
+                    }
+                });
+            }
+        });
+    </script>
+</head>
+
+<body style="margin: 0; overflow: hidden;">
+    
+    <a-scene embedded arjs="sourceType: webcam; debugUIEnabled: false;" vr-mode-ui="enabled: false">
+        
+        <a-marker preset="hiro">
+            
+            <a-box position="0 0.1 0" scale="1.5 0.1 1" color="white" opacity="0.9"></a-box>
+            
+            <a-text value="You are Invited!" color="black" position="0 0.2 0" align="center" rotation="-90 0 0" scale="2 2 2"></a-text>
+
+            <a-box 
+                position="0 0.2 0.8" 
+                scale="1 0.2 0.4" 
+                color="#2196F3" 
+                class="clickable"
+                button-action="navigate">
+                <a-text value="START NAVIGATION" align="center" color="white" position="0 0.11 0" rotation="-90 0 0" scale="0.8 0.8 0.8"></a-text>
+            </a-box>
+
+        </a-marker>
+
+        <a-entity camera>
+            <a-entity cursor="rayOrigin: mouse" raycaster="objects: .clickable"></a-entity>
+        </a-entity>
+
+    </a-scene>
+</body>
+</html>
