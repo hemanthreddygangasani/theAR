@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Venue Navigation</title>
+    <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
+    <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
+    
+    <style>
+        .ui-overlay {
+            position: fixed;
+            bottom: 30px;
+            width: 100%;
+            text-align: center;
+            z-index: 100;
+            pointer-events: none; /* Let user touch screen to rotate if needed */
+        }
+        .info-box {
+            display: inline-block;
+            background: rgba(0, 0, 0, 0.8);
+            color: #fff;
+            padding: 15px 25px;
+            border-radius: 30px;
+            font-family: sans-serif;
+            font-weight: bold;
+            font-size: 16px;
+            border: 2px solid #d4af37;
+        }
+        .success-msg {
+            background-color: #28a745 !important; /* Green */
+            border-color: #fff !important;
+        }
+    </style>
+</head>
+
+<body style='margin: 0; overflow: hidden;'>
+
+    <div class="ui-overlay">
+        <div class="info-box" id="status">Scanning GPS...</div>
+    </div>
+
+    <a-scene
+        vr-mode-ui="enabled: false"
+        embedded
+        arjs='sourceType: webcam; videoTexture: true; debugUIEnabled: false;'>
+
+        <a-camera gps-camera="gpsMinDistance: 5" rotation-reader></a-camera>
+
+        <a-entity 
+            id="destination-arrow"
+            material="color: red" 
+            geometry="primitive: cone; radiusBottom: 1; height: 4"
+            gps-entity-place="latitude: 12.9692; longitude: 79.1559;" 
+            scale="5 5 5" 
+            position="0 50 0"
+            animation="property: rotation; to: 0 360 0; loop: true; dur: 2000">
+        </a-entity>
+
+    </a-scene>
+
+    <script>
+        window.onload = () => {
+            const arrow = document.querySelector('#destination-arrow');
+            const statusBox = document.querySelector('#status');
+            
+            // Listen for GPS updates
+            arrow.addEventListener('gps-entity-place-update-position', (e) => {
+                const distance = Math.round(e.detail.distance);
+                
+                // Update Text
+                if(distance > 1000) {
+                     statusBox.innerText = `Follow Arrow: ${(distance/1000).toFixed(1)} km`;
+                } else {
+                    statusBox.innerText = `Follow Arrow: ${distance} meters`;
+                }
+
+                // ARRIVAL LOGIC
+                if(distance < 40) {
+                    statusBox.innerText = "🎉 You have reached the Destination!";
+                    statusBox.classList.add('success-msg');
+                    
+                    // Stop the arrow rotation or hide it
+                    arrow.setAttribute('visible', 'false');
+                    
+                    // Optional: Trigger a celebration sound or alert
+                    alert("Welcome to the Wedding!");
+                }
+            });
+        };
+    </script>
+</body>
+</html>
