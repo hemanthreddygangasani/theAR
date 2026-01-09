@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AR Wedding Invite</title>
+    <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
+    <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
+    
+    <style>
+        /* Button Style */
+        #nav-btn {
+            display: none; /* Hidden until card is found */
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: linear-gradient(45deg, #d4af37, #f7e6ad);
+            color: #333;
+            padding: 15px 30px;
+            font-size: 18px;
+            font-weight: bold;
+            border: none;
+            border-radius: 50px;
+            box-shadow: 0 4px 15px rgba(212, 175, 55, 0.5);
+            z-index: 100;
+            text-decoration: none;
+        }
+        .instructions {
+            position: fixed;
+            top: 20px;
+            width: 100%;
+            text-align: center;
+            color: white;
+            font-family: sans-serif;
+            z-index: 50;
+            pointer-events: none;
+            text-shadow: 1px 1px 2px black;
+        }
+    </style>
+</head>
+
+<body style="margin: 0; overflow: hidden;">
+
+    <div class="instructions">Point camera at the Wedding Card (Hiro Marker)</div>
+
+    <a href="maps.html" id="nav-btn">📍 Get Directions to Venue</a>
+
+    <a-scene embedded arjs>
+        
+        <a-marker preset="hiro" id="my-marker">
+            
+            <a-box position="0 0.5 0" 
+                   material="color: #d4af37; opacity: 0.9;" 
+                   animation="property: rotation; to: 0 360 0; loop: true; dur: 4000">
+            </a-box>
+
+            <a-text value="Rohan & Priya" position="0 1.5 0" align="center" color="#FFF" scale="2 2 2"></a-text>
+            <a-text value="Jan 25, 2026" position="0 1.2 0" align="center" color="#DDD"></a-text>
+
+        </a-marker>
+
+        <a-entity camera></a-entity>
+    </a-scene>
+
+    <script>
+        const marker = document.querySelector('#my-marker');
+        const btn = document.querySelector('#nav-btn');
+
+        // When the card is seen, show the button
+        marker.addEventListener('markerFound', () => {
+            console.log("Card Detected!");
+            btn.style.display = 'block'; 
+        });
+    </script>
+</body>
+</html>
