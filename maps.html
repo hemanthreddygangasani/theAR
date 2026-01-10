@@ -6,7 +6,7 @@
     <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
     
     <style>
-        /* Heads-Up Display (HUD) Design */
+        /* UI Overlay Design */
         .hud {
             position: fixed;
             bottom: 20px;
@@ -15,11 +15,11 @@
             text-align: center;
             z-index: 999;
             font-family: sans-serif;
-            pointer-events: none; 
+            pointer-events: none;
         }
         .instruction-box {
             background: rgba(0, 0, 0, 0.85);
-            color: #00ff00; /* Bright Green Text */
+            color: #00ff00; /* Bright Green */
             padding: 15px 25px;
             border-radius: 15px;
             font-size: 1.1rem;
@@ -40,8 +40,8 @@
 
     <div class="hud">
         <div class="instruction-box" id="msg">
-            Initializing GPS...
-            <span class="sub-text">Waiting for satellites</span>
+            Initializing System...
+            <span class="sub-text">Waiting for GPS Signal</span>
         </div>
     </div>
 
@@ -50,141 +50,129 @@
         embedded
         arjs='sourceType: webcam; videoTexture: true; debugUIEnabled: false;'>
 
-        <a-camera gps-camera="gpsMinDistance: 3" rotation-reader></a-camera>
+        <a-camera gps-camera="gpsMinDistance: 3" rotation-reader id="camera">
+            
+            <a-entity 
+                id="guide-arrow"
+                visible="false"
+                geometry="primitive: cone; radiusBottom: 0.15; height: 0.5"
+                material="color: #ff0000; opacity: 1.0; shader: flat;"
+                position="0 -0.5 -1.5"
+                rotation="90 0 0"> </a-entity>
 
-        <a-entity 
-            id="guide-arrow"
-            visible="false"
-            geometry="primitive: cone; radiusBottom: 0.2; height: 1.0"
-            material="color: #ff0000; opacity: 1.0"
-            position="0 -1 -4"> 
-        </a-entity>
+        </a-camera>
 
     </a-scene>
 
     <script>
-        // ==================================================================
+        // ============================================
         // ⚠️ STEP 1: PASTE YOUR MAPBOX TOKEN HERE
-        // It should look like: 'pk.eyJ1...'
-        // ==================================================================
-        
-        const MAPBOX_TOKEN = 'pk.eyJ1IjoiaGVtYW50aDg1MDMiLCJhIjoiY21rNzY0b2xnMHhlNzNkcXh2NXFzMXQ5ZiJ9.Wmuoh9GHMrMKo_lLmJ7oAA'; 
+        // ============================================
+        const MAPBOX_TOKEN = 'PASTE_YOUR_TOKEN_HERE'; 
 
 
-        // ==================================================================
-        // ⚠️ STEP 2: SET DESTINATION (Format: [Longitude, Latitude])
-        // NOTE: Mapbox uses [Lon, Lat]. Google Maps gives you [Lat, Lon].
-        // YOU MUST SWAP THEM! 
-        // Example: If Google says "12.97, 79.15" -> You write [79.15, 12.97]
-        // ==================================================================
-        
+        // ============================================
+        // ⚠️ STEP 2: SET DESTINATION [Longitude, Latitude]
+        // ============================================
         const DESTINATION = [79.1559, 12.9692]; // Example: VIT Main Gate
 
 
-        // ==================================================================
-        // SYSTEM LOGIC (DO NOT TOUCH BELOW THIS LINE)
-        // ==================================================================
-
+        // ============================================
+        // LOGIC (DO NOT TOUCH)
+        // ============================================
         let routePoints = [];
         let nextPointIndex = 0;
 
         window.onload = () => {
             const msgBox = document.querySelector('#msg');
             const arrow = document.querySelector('#guide-arrow');
+            const camera = document.querySelector('#camera');
 
-            // Check if Geolocation is available
             if (navigator.geolocation) {
                 navigator.geolocation.watchPosition(async (position) => {
                     const userLat = position.coords.latitude;
                     const userLon = position.coords.longitude;
 
-                    // A. Fetch Path (Only once at start)
+                    // A. Fetch Path (One Time)
                     if (routePoints.length === 0) {
                         msgBox.innerHTML = "Fetching Path...<br><span class='sub-text'>Contacting Mapbox</span>";
                         await getPathFromMapbox(userLon, userLat);
                     }
 
-                    // B. Navigation Logic
+                    // B. Navigation Loop
                     if (routePoints.length > 0) {
-                        // Get the target point on the path
                         const target = routePoints[nextPointIndex];
-                        
-                        // Calculate distance to that specific turn
                         const dist = calculateDistance(userLat, userLon, target[1], target[0]);
 
-                        // Update UI
-                        msgBox.innerHTML = `Next Point: ${Math.round(dist)}m ahead<br><span class='sub-text'>Follow Red Arrow</span>`;
+                        // Update Text
+                        msgBox.innerHTML = `Next Point: ${Math.round(dist)}m<br><span class='sub-text'>Follow Red Arrow</span>`;
                         arrow.setAttribute('visible', 'true');
 
-                        // C. Checkpoint Logic (Did we reach the point?)
-                        // If within 10 meters, switch to the NEXT point
+                        // Checkpoint Logic (< 10m)
                         if (dist < 10) {
                             if (nextPointIndex < routePoints.length - 1) {
                                 nextPointIndex++;
-                                msgBox.innerHTML = "Checkpoint Reached!<br><span class='sub-text'>Turning...</span>";
+                                msgBox.innerHTML = "Turn Reached!<br><span class='sub-text'>New Direction...</span>";
                             } else {
                                 msgBox.innerHTML = "🎉 ARRIVED! 🎉<br><span class='sub-text'>Welcome to the Venue</span>";
                                 arrow.setAttribute('visible', 'false');
                             }
                         }
 
-                        // D. Rotate the Arrow
-                        // Calculate bearing from User to Target Point
-                        const bearing = calculateBearing(userLat, userLon, target[1], target[0]);
+                        // C. Compass Logic (Rotate Arrow)
+                        // 1. Where should we go? (Bearing to Target)
+                        const targetBearing = calculateBearing(userLat, userLon, target[1], target[0]);
                         
-                        // Apply rotation (Convert to radians, invert for WebGL)
-                        arrow.object3D.rotation.y = THREE.Math.degToRad(-bearing);
+                        // 2. Where are we looking? (Camera Heading)
+                        // Note: We need the Y-rotation of the camera
+                        const currentRotation = camera.getAttribute('rotation');
+                        const userHeading = currentRotation ? currentRotation.y : 0;
+
+                        // 3. Difference = Where the arrow should point on screen
+                        const relativeHeading = targetBearing - userHeading;
+
+                        // 4. Apply Rotation (Convert to Radians)
+                        // We use negative relativeHeading because A-Frame rotates CCW
+                        arrow.object3D.rotation.y = THREE.Math.degToRad(-relativeHeading);
+                        
+                        // Keep arrow flat (X-axis 90deg)
+                        arrow.object3D.rotation.x = THREE.Math.degToRad(90); 
                     }
 
                 }, (err) => {
                     console.error(err);
-                    msgBox.innerHTML = "GPS Access Denied<br><span class='sub-text'>Please enable Location</span>";
-                }, {
-                    enableHighAccuracy: true,
-                    maximumAge: 0,
-                    timeout: 5000
-                });
+                    msgBox.innerHTML = "GPS Error<br><span class='sub-text'>Check Location Settings</span>";
+                }, { enableHighAccuracy: true });
             }
         };
 
-        // --- API FUNCTION ---
+        // --- API & MATH FUNCTIONS ---
         async function getPathFromMapbox(startLon, startLat) {
-            // Mapbox API URL (Walking Mode)
             const url = `https://api.mapbox.com/directions/v5/mapbox/walking/${startLon},${startLat};${DESTINATION[0]},${DESTINATION[1]}?steps=true&geometries=geojson&access_token=${MAPBOX_TOKEN}`;
-
             try {
                 const response = await fetch(url);
                 const data = await response.json();
-                
                 if (data.routes && data.routes.length > 0) {
                     routePoints = data.routes[0].geometry.coordinates;
-                    console.log("Path Loaded:", routePoints.length, "points");
                 } else {
                     document.querySelector('#msg').innerText = "No Route Found!";
                 }
-            } catch (error) {
-                console.error("API Error:", error);
-                document.querySelector('#msg').innerText = "Mapbox Error (Check Console)";
-            }
+            } catch (error) { console.error(error); }
         }
 
-        // --- MATH FUNCTIONS ---
         function calculateDistance(lat1, lon1, lat2, lon2) {
             const R = 6371e3; 
             const φ1 = lat1 * Math.PI/180;
             const φ2 = lat2 * Math.PI/180;
             const Δφ = (lat2-lat1) * Math.PI/180;
             const Δλ = (lon2-lon1) * Math.PI/180;
-            const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-                      Math.cos(φ1) * Math.cos(φ2) *
-                      Math.sin(Δλ/2) * Math.sin(Δλ/2);
+            const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
             return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
         }
 
         function calculateBearing(lat1, lon1, lat2, lon2) {
             const y = Math.sin(lon2 - lon1) * Math.cos(lat2);
-            const x = Math.cos(lat1) * Math.sin(lat2) -
-                      Math.sin(lat1) * Math.cos(lat2) * Math.cos(lon2 - lon1);
+            const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(lon2 - lon1);
             return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
         }
     </script>
