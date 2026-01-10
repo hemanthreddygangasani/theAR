@@ -6,14 +6,14 @@
     <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
     
     <style>
-        /* Button Style */
+        /* The "Get Directions" Button */
         #nav-btn {
-            display: none; /* Hidden until card is found */
+            display: none; /* Hidden by default until card is found */
             position: fixed;
             bottom: 30px;
             left: 50%;
             transform: translateX(-50%);
-            background: linear-gradient(45deg, #d4af37, #f7e6ad);
+            background: linear-gradient(45deg, #d4af37, #f7e6ad); /* Gold Gradient */
             color: #333;
             padding: 15px 30px;
             font-size: 18px;
@@ -23,7 +23,17 @@
             box-shadow: 0 4px 15px rgba(212, 175, 55, 0.5);
             z-index: 100;
             text-decoration: none;
+            font-family: sans-serif;
+            animation: popIn 0.5s ease-out;
         }
+
+        /* Animation for the button appearing */
+        @keyframes popIn {
+            from { transform: translateX(-50%) scale(0); }
+            to { transform: translateX(-50%) scale(1); }
+        }
+
+        /* Instructions Text */
         .instructions {
             position: fixed;
             top: 20px;
@@ -31,9 +41,9 @@
             text-align: center;
             color: white;
             font-family: sans-serif;
+            text-shadow: 1px 1px 2px black;
             z-index: 50;
             pointer-events: none;
-            text-shadow: 1px 1px 2px black;
         }
     </style>
 </head>
@@ -62,14 +72,17 @@
     </a-scene>
 
     <script>
+        // Logic to show the button ONLY when marker is found
         const marker = document.querySelector('#my-marker');
         const btn = document.querySelector('#nav-btn');
 
-        // When the card is seen, show the button
         marker.addEventListener('markerFound', () => {
             console.log("Card Detected!");
-            btn.style.display = 'block'; 
+            btn.style.display = 'block'; // Reveal the button
         });
+        
+        // Optional: Hide button if lost? 
+        // We usually keep it visible so the user can click it easily.
     </script>
 </body>
 </html>
