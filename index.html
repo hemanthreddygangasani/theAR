@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>AR Turn-by-Turn</title>
+<title>AR Wedding Navigation</title>
 
 <link href="https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.css" rel="stylesheet">
 
@@ -21,7 +21,7 @@
         background-image: url("https://cdn-icons-png.flaticon.com/512/724/724927.png");
         background-size: contain; background-repeat: no-repeat;
         filter: drop-shadow(0 0 10px #00e5ff);
-        /* REDUCED LAG: We removed the CSS transition here to let JS handle the snap */
+        /* No transition ensures instant snap for compass */
     }
 
     /* Top Info Bar */
@@ -29,25 +29,23 @@
         position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
         background: rgba(0, 0, 0, 0.85); color: white;
         padding: 15px 25px; border-radius: 30px; text-align: center;
-        border: 2px solid #00e5ff; width: 80%;
+        border: 2px solid #00e5ff; width: 80%; z-index: 10;
     }
     #instruction { font-size: 18px; font-weight: bold; display: block; margin-bottom: 5px; }
     #distance { font-size: 14px; color: #ccc; }
 
-    /* Map (Bottom Right) */
+    /* Mini Map (Bottom Right) - now larger to show path clearly */
     #mini-map {
         position: fixed; bottom: 20px; right: 20px;
-        width: 120px; height: 120px; border-radius: 15px;
-        border: 3px solid white; background: #333;
+        width: 160px; height: 160px; border-radius: 20px;
+        border: 3px solid white; background: #333; z-index: 10;
+        box-shadow: 0 0 15px rgba(0,0,0,0.5);
     }
 
-    /* Debug Text (Top Left - Remove later) */
-    #debug { position: fixed; top: 5px; left: 5px; color: yellow; font-size: 10px; font-family: monospace; background: rgba(0,0,0,0.5); padding: 4px; }
-    
     /* Start Button */
     #start-btn {
         position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-        padding: 15px 40px; font-size: 20px; background: #00e5ff; border: none; font-weight: bold; cursor: pointer; border-radius: 50px;
+        padding: 15px 40px; font-size: 20px; background: #00e5ff; border: none; font-weight: bold; cursor: pointer; border-radius: 50px; z-index: 20;
     }
 </style>
 </head>
@@ -66,7 +64,6 @@
     </div>
 
     <div id="mini-map"></div>
-    <div id="debug">GPS: --<br>Compass: --</div>
     
     <button id="start-btn" onclick="startApp()">START NAVIGATION</button>
 
@@ -74,27 +71,27 @@
 
 <script>
     // ================= CONFIGURATION =================
-    // 1. YOUR TOKEN
     const MAPBOX_TOKEN = 'pk.eyJ1IjoiaGVtYW50aDg1MDMiLCJhIjoiY21rNzV5c2w2MHlqeTNncjI5bjkyeWJwaiJ9.NnunzAB_24Ntn83H5hRcyQ'; 
-    
-    // 2. DESTINATION (Mapbox Format: [Longitude, Latitude])
     const DESTINATION = [79.1559, 12.9692]; // VIT Vellore
-
-    // 3. THE "SWITCH" RADIUS (Meters)
-    // As soon as user is this close to a turn, arrow points to the *next* turn.
-    // Keeps arrow stable.
-    const TURN_BUBBLE = 20; 
+    const TURN_BUBBLE = 20; // Meters (Snap to next turn)
 
     // ================= STATE =================
-    let steps = []; // The list of turns
+    let map;
+    let userMarker;
+    let steps = []; 
     let currentStepIndex = 0;
     let isNavigating = false;
     
-    let currentHeading = 0; // Where phone faces
-    let targetBearing = 0;  // Where arrow should point
+    let currentHeading = 0; 
+    let targetBearing = 0;  
 
     // ================= STARTUP =================
     async function startApp() {
+        if(MAPBOX_TOKEN === 'YOUR_MAPBOX_ACCESS_TOKEN_HERE') {
+            alert("Error: Please put your Mapbox Token in the code.");
+            return;
+        }
+
         document.getElementById("start-btn").style.display = "none";
         document.getElementById("instruction").innerText = "Locating...";
 
@@ -104,26 +101,46 @@
             document.getElementById("camera-feed").srcObject = stream;
         } catch(e) { console.error("Cam error", e); }
 
-        // 2. Map
+        // 2. Map & Sensors
         initMap();
-
-        // 3. Sensors (Compass + GPS)
         requestSensors();
     }
 
+    function initMap() {
+        mapboxgl.accessToken = MAPBOX_TOKEN;
+        map = new mapboxgl.Map({
+            container: 'mini-map',
+            style: 'mapbox://styles/mapbox/dark-v11',
+            center: DESTINATION, zoom: 17, attributionControl: false,
+            pitch: 45 // Tilt map for 3D feel
+        });
+
+        // Add User Marker (The Blue Dot)
+        const el = document.createElement('div');
+        el.className = 'marker';
+        el.style.backgroundImage = 'url(https://docs.mapbox.com/mapbox-gl-js/assets/custom_marker.png)';
+        el.style.width = '32px'; el.style.height = '32px'; el.style.backgroundSize = '100%';
+        
+        userMarker = new mapboxgl.Marker(el)
+            .setLngLat(DESTINATION) // Temp pos
+            .addTo(map);
+
+        // Add Destination Flag
+        new mapboxgl.Marker({ color: 'red' })
+            .setLngLat(DESTINATION)
+            .addTo(map);
+    }
+
     function requestSensors() {
-        // iOS Compass Permission
         if (typeof DeviceOrientationEvent.requestPermission === 'function') {
             DeviceOrientationEvent.requestPermission()
                 .then(resp => {
                     if (resp === 'granted') window.addEventListener('deviceorientation', handleOrientation);
-                })
-                .catch(console.error);
+                });
         } else {
             window.addEventListener('deviceorientation', handleOrientation);
         }
 
-        // GPS
         if(navigator.geolocation) {
             navigator.geolocation.watchPosition(
                 handleGPS, 
@@ -133,28 +150,24 @@
         }
     }
 
-    function initMap() {
-        mapboxgl.accessToken = MAPBOX_TOKEN;
-        const map = new mapboxgl.Map({
-            container: 'mini-map',
-            style: 'mapbox://styles/mapbox/dark-v11',
-            center: DESTINATION, zoom: 15, attributionControl: false
-        });
-    }
-
     // ================= LOGIC LOOP =================
     function handleGPS(pos) {
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
-        document.getElementById("debug").innerHTML = `GPS Acc: ${Math.round(pos.coords.accuracy)}m`;
 
-        // 1. GET ROUTE (Once)
+        // 1. REAL-TIME TRACKING: Update Map Marker
+        if (map && userMarker) {
+            userMarker.setLngLat([lng, lat]);
+            map.flyTo({ center: [lng, lat], zoom: 18 }); // Keep user centered
+        }
+
+        // 2. GET ROUTE (Once)
         if (!isNavigating) {
             getRoute(lat, lng);
             return;
         }
 
-        // 2. CHECK PROGRESS
+        // 3. NAVIGATION LOGIC
         if (steps.length > 0 && currentStepIndex < steps.length) {
             const targetStep = steps[currentStepIndex];
             const targetLng = targetStep.maneuver.location[0];
@@ -162,73 +175,86 @@
 
             const dist = getDistance(lat, lng, targetLat, targetLng);
             
-            // UI Update
             document.getElementById("instruction").innerText = targetStep.maneuver.instruction;
             document.getElementById("distance").innerText = Math.round(dist) + " meters";
 
-            // --- THE FIX FOR CIRCLING ---
-            // If inside the bubble, switch to NEXT turn immediately.
+            // Turn Bubble Logic
             if (dist < TURN_BUBBLE) {
                 if (currentStepIndex < steps.length - 1) {
-                    currentStepIndex++; // NEXT TURN!
-                    console.log("Turn reached. Switching node.");
+                    currentStepIndex++;
                 } else {
                     document.getElementById("instruction").innerText = "ARRIVED!";
                     document.getElementById("arrow-img").style.display = "none";
                 }
             }
 
-            // Calculate Bearing to CURRENT Target
             targetBearing = getBearing(lat, lng, targetLat, targetLng);
         }
     }
 
     async function getRoute(lat, lng) {
         document.getElementById("instruction").innerText = "Calculating Path...";
+        
+        // Fetch Steps AND Geometry
         const url = `https://api.mapbox.com/directions/v5/mapbox/walking/${lng},${lat};${DESTINATION[0]},${DESTINATION[1]}?steps=true&geometries=geojson&access_token=${MAPBOX_TOKEN}`;
         
         try {
             const res = await fetch(url);
             const data = await res.json();
             if(data.routes && data.routes.length > 0) {
-                // WE USE 'STEPS' NOW, NOT GEOMETRY
+                // Save Steps for Arrow
                 steps = data.routes[0].legs[0].steps;
-                // Remove the "Depart" step if it's super close (optional)
                 if(steps.length > 1) steps.shift(); 
                 
+                // DRAW THE PATH ON MAP
+                const routeGeoJSON = data.routes[0].geometry;
+                if (map.getSource('route')) {
+                    map.getSource('route').setData(routeGeoJSON);
+                } else {
+                    map.addLayer({
+                        id: 'route',
+                        type: 'line',
+                        source: {
+                            type: 'geojson',
+                            data: {
+                                type: 'Feature',
+                                properties: {},
+                                geometry: routeGeoJSON
+                            }
+                        },
+                        layout: { 'line-join': 'round', 'line-cap': 'round' },
+                        paint: {
+                            'line-color': '#00e5ff',
+                            'line-width': 5,
+                            'line-opacity': 0.8
+                        }
+                    });
+                }
+
                 isNavigating = true;
                 document.getElementById("instruction").innerText = "Follow Arrow";
             }
         } catch(e) { console.error(e); }
     }
 
-    // ================= COMPASS ENGINE (NO LAG) =================
+    // ================= COMPASS (Fast Response) =================
     function handleOrientation(e) {
-        // 1. Get Raw Heading
         let heading = e.webkitCompassHeading || (e.alpha ? 360 - e.alpha : 0);
         
-        // 2. FAST Smoothing (0.5 factor = Very Responsive)
-        // Previous code used 0.1, which caused the lag.
         let diff = heading - currentHeading;
         while(diff < -180) diff += 360;
         while(diff > 180) diff -= 360;
-        
-        currentHeading += diff * 0.5; // <--- CHANGED FROM 0.1 TO 0.5
+        currentHeading += diff * 0.5; // Fast smoothing
 
-        // 3. Rotate Arrow
         if (isNavigating) {
-            // Arrow Angle = Target World Angle - Phone Heading
             let arrowAngle = targetBearing - currentHeading;
-            
-            // Normalize
             while(arrowAngle < -180) arrowAngle += 360;
             while(arrowAngle > 180) arrowAngle -= 360;
-
             document.getElementById("arrow-img").style.transform = `rotate(${arrowAngle}deg)`;
         }
     }
 
-    // ================= MATH HELPERS =================
+    // ================= MATH =================
     function getDistance(lat1, lon1, lat2, lon2) {
         const R = 6371e3;
         const dLat = (lat2 - lat1) * Math.PI / 180;
