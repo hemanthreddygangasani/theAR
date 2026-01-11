@@ -1,288 +1,317 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>AR Wedding Navigation</title>
-
-<link href="https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.css" rel="stylesheet">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-
-<style>
-    /* UI Reset */
-    body { margin: 0; overflow: hidden; background: black; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>3D AR Wedding Navigation</title>
     
-    /* Camera Feed (Background) */
-    #camera-feed { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; z-index: -1; }
-
-    /* --- HUD (Top Half) --- */
-    #nav-hud {
-        position: absolute; top: 25%; left: 50%; transform: translate(-50%, -50%);
-        text-align: center; width: 100%; pointer-events: none; z-index: 20;
-    }
-
-    /* Direction Arrow */
-    #direction-arrow {
-        font-size: 90px;
-        color: rgba(0, 229, 255, 1);
-        filter: drop-shadow(0 0 10px #000);
-        transition: transform 0.2s ease;
-        display: inline-block;
-    }
-
-    /* Instruction Text */
-    #nav-instruction {
-        margin-top: 10px;
-        font-size: 20px; font-weight: 800; color: white;
-        text-shadow: 0 2px 4px rgba(0,0,0,1);
-        text-transform: uppercase; letter-spacing: 1px;
-        background: rgba(0,0,0,0.6); padding: 8px 16px; border-radius: 15px;
-        display: inline-block;
-    }
-
-    /* Distance Badge (Top Center) */
-    #dist-badge {
-        position: fixed; top: 15px; left: 50%; transform: translateX(-50%);
-        background: #00e5ff; color: #000;
-        padding: 8px 25px; border-radius: 50px;
-        font-size: 24px; font-weight: 900;
-        box-shadow: 0 5px 15px rgba(0,229,255,0.4);
-        z-index: 20;
-    }
-
-    /* --- INTERACTIVE MAP (Bottom Half) --- */
-    #mini-map {
-        position: fixed; 
-        bottom: 15px; 
-        left: 50%; 
-        transform: translateX(-50%);
+    <link href="https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.css" rel="stylesheet">
+    
+    <style>
+        /* UI Reset */
+        body { margin: 0; overflow: hidden; background: black; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
         
-        /* BIG RECTANGLE DIMENSIONS */
-        width: 95vw; 
-        height: 45vh; 
-        
-        border-radius: 20px; 
-        border: 3px solid rgba(255,255,255,0.8);
-        background: #222; 
-        z-index: 10;
-        box-shadow: 0 -5px 20px rgba(0,0,0,0.8);
-        
-        /* Enable Interaction */
-        pointer-events: auto; 
-    }
+        /* 1. The Camera Feed (Background Layer) */
+        #camera-feed {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            object-fit: cover; z-index: -2;
+        }
 
-    /* Start Button */
-    #start-btn {
-        position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-        padding: 20px 40px; font-size: 18px; background: #00e5ff; color: black; 
-        border: none; font-weight: bold; cursor: pointer; border-radius: 50px; z-index: 50;
-        box-shadow: 0 0 20px #00e5ff;
-    }
-</style>
+        /* 2. The 3D AR Layer (Transparent Canvas) */
+        #ar-canvas {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: -1; pointer-events: none; /* Let touches pass through */
+        }
+
+        /* 3. HUD (Distance Badge) */
+        #hud {
+            position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7); padding: 12px 24px; border-radius: 50px;
+            border: 2px solid #00e5ff; color: #fff; font-weight: bold;
+            font-size: 16px; z-index: 10; text-transform: uppercase;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.5); white-space: nowrap;
+        }
+
+        /* 4. Mini Map (Updated: Smaller & Square) */
+        #mini-map {
+            position: fixed; bottom: 20px; right: 20px;
+            
+            /* SQUARE DIMENSIONS */
+            width: 120px; 
+            height: 120px; 
+            
+            border-radius: 15px; /* Rounded Corners */
+            border: 3px solid white; 
+            background: #222; 
+            z-index: 10;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+            overflow: hidden;
+        }
+
+        /* 5. Start Button */
+        #start-btn {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            padding: 20px 50px; font-size: 20px; background: #00e5ff; color: #000;
+            border: none; border-radius: 50px; font-weight: 900; z-index: 50; cursor: pointer;
+            box-shadow: 0 0 25px #00e5ff;
+        }
+    </style>
 </head>
-
 <body>
 
     <video id="camera-feed" autoplay playsinline muted></video>
 
-    <div id="dist-badge">-- m</div>
+    <canvas id="ar-canvas"></canvas>
 
-    <div id="nav-hud">
-        <i id="direction-arrow" class="fa-solid fa-location-arrow"></i>
-        <br>
-        <div id="nav-instruction">Ready</div>
-    </div>
-
+    <div id="hud">Waiting for Start...</div>
     <div id="mini-map"></div>
-    
-    <button id="start-btn" onclick="startApp()">START NAVIGATION</button>
+    <button id="start-btn" onclick="startAR()">ENTER AR MODE</button>
 
     <script src="https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 
-<script>
-    // ================= CONFIGURATION =================
-    const MAPBOX_TOKEN = 'pk.eyJ1IjoiaGVtYW50aDg1MDMiLCJhIjoiY21rNzV5c2w2MHlqeTNncjI5bjkyeWJwaiJ9.NnunzAB_24Ntn83H5hRcyQ'; 
-    const DESTINATION = [79.1559, 12.9692]; // VIT Vellore
-    
-    const TURN_ALERT_DIST = 30; 
-    const STEP_SWITCH_DIST = 10; 
+    <script>
+        // ================= CONFIGURATION =================
+        const MAPBOX_TOKEN = 'pk.eyJ1IjoiaGVtYW50aDg1MDMiLCJhIjoiY21rNzV5c2w2MHlqeTNncjI5bjkyeWJwaiJ9.NnunzAB_24Ntn83H5hRcyQ'; 
+        const DESTINATION = [79.1559, 12.9692]; // VIT Vellore
 
-    // ================= STATE =================
-    let map, userMarker;
-    let steps = []; 
-    let currentStepIndex = 0;
-    let isNavigating = false;
-    let userInteracting = false; // Tracks if user is touching map
+        // ================= VARIABLES =================
+        let map, scene, camera, renderer, arrowMesh;
+        let steps = [], currentStepIndex = 0;
+        let deviceHeading = 0; // Where phone is looking
+        let targetBearing = 0; // Where we want to go
+        let isRunning = false;
 
-    // ================= STARTUP =================
-    async function startApp() {
-        if(MAPBOX_TOKEN === 'YOUR_MAPBOX_ACCESS_TOKEN_HERE') {
-            alert("⚠️ Error: Paste Mapbox Token first!"); return;
-        }
-        document.getElementById("start-btn").style.display = "none";
-        document.getElementById("nav-instruction").innerText = "Locating...";
-
-        // 1. Camera
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-            document.getElementById("camera-feed").srcObject = stream;
-        } catch(e) { console.error("Cam error", e); }
-
-        // 2. Map & GPS
-        initMap();
-        
-        if(navigator.geolocation) {
-            navigator.geolocation.watchPosition(handleGPS, console.error, { enableHighAccuracy: true });
-        } else { alert("GPS not supported"); }
-    }
-
-    function initMap() {
-        mapboxgl.accessToken = MAPBOX_TOKEN;
-        map = new mapboxgl.Map({
-            container: 'mini-map',
-            style: 'mapbox://styles/mapbox/dark-v11', // Night mode
-            center: DESTINATION, 
-            zoom: 17, 
-            pitch: 50, // Slight 3D tilt
-            attributionControl: false,
-            interactive: true // ENABLE TOUCH/DRAG
-        });
-
-        // Add Zoom/Compass Controls (Top Right of the Map)
-        map.addControl(new mapboxgl.NavigationControl(), 'top-right');
-
-        // Detect user interaction (to stop auto-centering temporarily)
-        map.on('dragstart', () => { userInteracting = true; });
-        map.on('moveend', () => { setTimeout(() => userInteracting = false, 5000); }); // Resume tracking after 5s
-
-        // User Marker (Blue Pulse)
-        const el = document.createElement('div');
-        el.style.backgroundColor = '#00e5ff';
-        el.style.width = '24px'; el.style.height = '24px'; 
-        el.style.borderRadius = '50%'; el.style.border = '4px solid white';
-        el.style.boxShadow = '0 0 15px #00e5ff';
-        userMarker = new mapboxgl.Marker(el).setLngLat(DESTINATION).addTo(map);
-
-        // Destination Marker
-        new mapboxgl.Marker({ color: 'red' }).setLngLat(DESTINATION).addTo(map);
-    }
-
-    // ================= LOGIC LOOP =================
-    function handleGPS(pos) {
-        const lat = pos.coords.latitude;
-        const lng = pos.coords.longitude;
-
-        // 1. Update Map Marker
-        if (map && userMarker) {
-            userMarker.setLngLat([lng, lat]);
+        // ================= STARTUP =================
+        async function startAR() {
+            if(MAPBOX_TOKEN.includes('YOUR_MAPBOX')) {
+                alert("⚠️ Error: You forgot to paste your Mapbox Token inside the code!"); 
+                return;
+            }
+            document.getElementById("start-btn").style.display = "none";
+            document.getElementById("hud").innerText = "Aligning Sensors...";
             
-            // Auto-center map ONLY if user isn't dragging it
-            if (!userInteracting) {
-                map.flyTo({ center: [lng, lat], zoom: 18, speed: 0.8, curve: 1 });
+            // 1. Start Camera
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: "environment" } 
+                });
+                document.getElementById("camera-feed").srcObject = stream;
+            } catch(e) { 
+                console.error(e); 
+                alert("Camera permission denied. Please allow camera access."); 
+            }
+
+            // 2. Init Systems
+            initThreeJS();
+            initMap();
+            requestSensors();
+            
+            // 3. Start Loop
+            isRunning = true;
+            animate(); 
+        }
+
+        // ================= 3D ENGINE (THREE.JS) =================
+        function initThreeJS() {
+            const canvas = document.getElementById('ar-canvas');
+            
+            // Scene
+            scene = new THREE.Scene();
+            
+            // Camera
+            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
+            
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true, antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+
+            // --- BUILD THE 3D ARROW ---
+            arrowMesh = new THREE.Group();
+
+            // Shaft
+            const geometryShaft = new THREE.CylinderGeometry(0.2, 0.2, 2, 32);
+            const materialShaft = new THREE.MeshBasicMaterial({ color: 0x00e5ff });
+            const shaft = new THREE.Mesh(geometryShaft, materialShaft);
+            shaft.rotation.x = Math.PI / 2;
+            shaft.position.z = 1;
+
+            // Head
+            const geometryHead = new THREE.ConeGeometry(0.6, 1.2, 32);
+            const materialHead = new THREE.MeshBasicMaterial({ color: 0x00e5ff });
+            const head = new THREE.Mesh(geometryHead, materialHead);
+            head.rotation.x = Math.PI / 2;
+            head.position.z = -0.5;
+
+            // Glow Outline (Wireframe)
+            const wiregeo = new THREE.ConeGeometry(0.7, 1.3, 16);
+            const wiremat = new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true, transparent: true, opacity: 0.5 });
+            const glow = new THREE.Mesh(wiregeo, wiremat);
+            glow.rotation.x = Math.PI / 2;
+            glow.position.z = -0.5;
+
+            arrowMesh.add(shaft);
+            arrowMesh.add(head);
+            arrowMesh.add(glow);
+
+            // Position: 1.5m down (ground), 4m forward
+            arrowMesh.position.set(0, -1.5, -4); 
+            scene.add(arrowMesh);
+
+            // Light
+            scene.add(new THREE.AmbientLight(0xffffff, 1));
+        }
+
+        // ================= 3D ANIMATION LOOP =================
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if(isRunning && arrowMesh) {
+                // AR MATH: 
+                // Rotate arrow based on bearing difference.
+                // Multiplied by -1 because Three.js Y-rotation is Counter-Clockwise
+                let desiredRotationY = (targetBearing - deviceHeading) * (Math.PI / 180);
+                
+                // Smooth Lerp (Ease into rotation)
+                let currentY = arrowMesh.rotation.y;
+                arrowMesh.rotation.y += ((-desiredRotationY) - currentY) * 0.1;
+
+                // Bobbing Effect (Visual Polish)
+                arrowMesh.position.y = -1.5 + Math.sin(Date.now() * 0.003) * 0.1;
+                
+                renderer.render(scene, camera);
             }
         }
 
-        // 2. Fetch Route (Once)
-        if (!isNavigating) {
-            getRoute(lat, lng);
-            return;
+        // ================= SENSORS =================
+        function requestSensors() {
+            // iOS Permission Check
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                DeviceOrientationEvent.requestPermission()
+                    .then(resp => {
+                        if (resp === 'granted') window.addEventListener('deviceorientation', handleOrientation);
+                    })
+                    .catch(console.error);
+            } else {
+                // Android / Standard
+                window.addEventListener('deviceorientation', handleOrientation);
+            }
+
+            // GPS
+            if(navigator.geolocation) {
+                navigator.geolocation.watchPosition(handleGPS, 
+                    err => { console.error(err); document.getElementById("hud").innerText = "GPS Signal Lost"; }, 
+                    { enableHighAccuracy: true, maximumAge: 0 }
+                );
+            } else {
+                alert("GPS not supported on this device.");
+            }
         }
 
-        // 3. Navigation Brain
-        if (steps.length > 0 && currentStepIndex < steps.length) {
-            const step = steps[currentStepIndex];
-            const targetLng = step.maneuver.location[0];
-            const targetLat = step.maneuver.location[1];
+        function handleOrientation(e) {
+            // Get Compass Heading
+            let heading = e.webkitCompassHeading || (e.alpha ? 360 - e.alpha : 0);
+            deviceHeading = heading;
+        }
+
+        function handleGPS(pos) {
+            const lat = pos.coords.latitude;
+            const lng = pos.coords.longitude;
             
-            // Dist Calc
-            const dist = getDistance(lat, lng, targetLat, targetLng);
-            document.getElementById("dist-badge").innerText = Math.round(dist) + " m";
+            // Fetch Route Once
+            if (steps.length === 0) getRoute(lat, lng);
 
-            // Update Arrows
-            updateArrowUI(dist, step.maneuver.modifier, step.maneuver.type);
+            // Update Map Marker
+            if(map && window.userMarker) {
+                window.userMarker.setLngLat([lng, lat]);
+                map.flyTo({ center: [lng, lat], zoom: 17 });
+            }
 
-            // Checkpoint Logic
-            if (dist < STEP_SWITCH_DIST) {
-                if (currentStepIndex < steps.length - 1) {
-                    currentStepIndex++; 
-                    updateArrowUI(999, 'straight'); // Reset temp
-                } else {
-                    finishNavigation();
+            // Logic: Distance & Turns
+            if (steps.length > 0 && currentStepIndex < steps.length) {
+                const target = steps[currentStepIndex].maneuver.location; // [Lng, Lat]
+                const dist = getDistance(lat, lng, target[1], target[0]);
+                
+                document.getElementById("hud").innerText = 
+                    `${steps[currentStepIndex].maneuver.instruction} (${Math.round(dist)}m)`;
+
+                // Update Target Bearing for the AR Arrow
+                targetBearing = getBearing(lat, lng, target[1], target[0]);
+
+                // Switch to next turn if close (20m radius)
+                if (dist < 20 && currentStepIndex < steps.length - 1) {
+                    currentStepIndex++;
                 }
             }
         }
-    }
 
-    // ================= UI UPDATER =================
-    function updateArrowUI(dist, modifier, type) {
-        const arrowIcon = document.getElementById("direction-arrow");
-        const instructionText = document.getElementById("nav-instruction");
-        if(!modifier) modifier = "";
+        // ================= MAPBOX & MATH =================
+        function initMap() {
+            mapboxgl.accessToken = MAPBOX_TOKEN;
+            map = new mapboxgl.Map({
+                container: 'mini-map', style: 'mapbox://styles/mapbox/dark-v11',
+                center: DESTINATION, zoom: 16, attributionControl: false
+            });
+            
+            // User Marker
+            const el = document.createElement('div');
+            el.className = 'marker';
+            el.style.backgroundColor = '#00e5ff';
+            el.style.width = '12px'; el.style.height = '12px';
+            el.style.borderRadius = '50%'; el.style.border = '2px solid white';
+            window.userMarker = new mapboxgl.Marker(el).setLngLat(DESTINATION).addTo(map);
 
-        // > 30m: GO STRAIGHT
-        if (dist > TURN_ALERT_DIST) {
-            arrowIcon.className = "fa-solid fa-arrow-up"; 
-            instructionText.innerText = "Go Straight";
-            arrowIcon.style.color = "rgba(0, 229, 255, 1)";
-        } 
-        // < 30m: SHOW TURN
-        else {
-            instructionText.innerText = "Turn Ahead";
-            arrowIcon.style.color = "#FFD700"; // Gold color for turns
-
-            if (modifier.includes("left")) arrowIcon.className = "fa-solid fa-arrow-left";
-            else if (modifier.includes("right")) arrowIcon.className = "fa-solid fa-arrow-right";
-            else if (type === "arrive") {
-                arrowIcon.className = "fa-solid fa-location-dot";
-                instructionText.innerText = "Destination";
-                arrowIcon.style.color = "#FF4444"; // Red for stop
-            }
-            else arrowIcon.className = "fa-solid fa-arrow-up";
+            // Destination
+            new mapboxgl.Marker({ color: 'red' }).setLngLat(DESTINATION).addTo(map);
         }
-    }
 
-    function finishNavigation() {
-        document.getElementById("nav-instruction").innerText = "ARRIVED!";
-        document.getElementById("nav-instruction").style.color = "#00ff00";
-        document.getElementById("direction-arrow").className = "fa-solid fa-flag-checkered";
-        document.getElementById("direction-arrow").style.color = "#00ff00";
-        document.getElementById("dist-badge").innerText = "0 m";
-    }
-
-    async function getRoute(lat, lng) {
-        document.getElementById("nav-instruction").innerText = "Calculating...";
-        const url = `https://api.mapbox.com/directions/v5/mapbox/walking/${lng},${lat};${DESTINATION[0]},${DESTINATION[1]}?steps=true&geometries=geojson&access_token=${MAPBOX_TOKEN}`;
-        
-        try {
-            const res = await fetch(url);
-            const data = await res.json();
-            if(data.routes && data.routes.length > 0) {
-                steps = data.routes[0].legs[0].steps;
-                if(steps.length > 1) steps.shift(); 
-                
-                // Draw Path
-                const geojson = data.routes[0].geometry;
-                if(map.getSource('route')) map.getSource('route').setData(geojson);
-                else {
-                    map.addLayer({
-                        id: 'route', type: 'line',
-                        source: { type: 'geojson', data: { type: 'Feature', geometry: geojson } },
-                        layout: { 'line-join': 'round', 'line-cap': 'round' },
-                        paint: { 'line-color': '#00e5ff', 'line-width': 8, 'line-opacity': 0.8 }
+        async function getRoute(lat, lng) {
+            const url = `https://api.mapbox.com/directions/v5/mapbox/walking/${lng},${lat};${DESTINATION[0]},${DESTINATION[1]}?steps=true&geometries=geojson&access_token=${MAPBOX_TOKEN}`;
+            try {
+                const res = await fetch(url);
+                const data = await res.json();
+                if(data.routes && data.routes.length > 0) {
+                    steps = data.routes[0].legs[0].steps;
+                    if(steps.length > 1) steps.shift(); // Remove "Depart" step
+                    
+                    // Draw Line
+                    const geojson = data.routes[0].geometry;
+                    map.on('load', () => {
+                        map.addLayer({
+                            id: 'route', type: 'line',
+                            source: { type: 'geojson', data: { type: 'Feature', geometry: geojson } },
+                            layout: { 'line-join': 'round', 'line-cap': 'round' },
+                            paint: { 'line-color': '#00e5ff', 'line-width': 4 }
+                        });
                     });
                 }
-                isNavigating = true;
-            }
-        } catch(e) { console.error(e); }
-    }
+            } catch(e) { console.error(e); }
+        }
 
-    function getDistance(lat1, lon1, lat2, lon2) {
-        const R = 6371e3;
-        const dLat = (lat2-lat1)*Math.PI/180;
-        const dLon = (lon2-lon1)*Math.PI/180;
-        const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
-        return R*2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    }
-</script>
+        function getDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371e3;
+            const dLat = (lat2-lat1)*Math.PI/180;
+            const dLon = (lon2-lon1)*Math.PI/180;
+            const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+            return R*2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        }
+
+        function getBearing(lat1, lon1, lat2, lon2) {
+            const dLon = (lon2-lon1)*Math.PI/180;
+            const y = Math.sin(dLon)*Math.cos(lat2*Math.PI/180);
+            const x = Math.cos(lat1*Math.PI/180)*Math.sin(lat2*Math.PI/180) - Math.sin(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.cos(dLon);
+            return (Math.atan2(y, x)*180/Math.PI + 360)%360;
+        }
+
+        // Resize Handler
+        window.addEventListener('resize', () => {
+            if(camera && renderer) {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            }
+        });
+    </script>
 </body>
 </html>
