@@ -1,88 +1,248 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>AR Wedding Invite</title>
-    <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
-    <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
-    
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR Wedding Navigation</title>
     <style>
-        /* The "Get Directions" Button */
-        #nav-btn {
-            display: none; /* Hidden by default until card is found */
+        body { margin: 0; overflow: hidden; background: #f0f0f0; font-family: sans-serif; }
+        
+        /* The Arrow Centered on Screen */
+        #arrow-container {
             position: fixed;
-            bottom: 30px;
+            top: 50%;
             left: 50%;
-            transform: translateX(-50%);
-            background: linear-gradient(45deg, #d4af37, #f7e6ad); /* Gold Gradient */
-            color: #333;
-            padding: 15px 30px;
-            font-size: 18px;
-            font-weight: bold;
-            border: none;
-            border-radius: 50px;
-            box-shadow: 0 4px 15px rgba(212, 175, 55, 0.5);
-            z-index: 100;
-            text-decoration: none;
-            font-family: sans-serif;
-            animation: popIn 0.5s ease-out;
+            transform: translate(-50%, -50%);
+            z-index: 2;
+            pointer-events: none; /* Let clicks pass through */
+        }
+        
+        /* The Arrow Image - Ensure your arrow image points UP naturally */
+        #arrow-icon {
+            width: 100px;
+            height: 100px;
+            background-image: url('https://upload.wikimedia.org/wikipedia/commons/7/7d/Arrow_up_green.png'); /* Placeholder Image */
+            background-size: contain;
+            background-repeat: no-repeat;
+            /* Transition creates the smooth "Hinge" effect */
+            transition: transform 0.2s linear; 
+            display: none; /* Hidden until started */
         }
 
-        /* Animation for the button appearing */
-        @keyframes popIn {
-            from { transform: translateX(-50%) scale(0); }
-            to { transform: translateX(-50%) scale(1); }
-        }
-
-        /* Instructions Text */
-        .instructions {
+        /* Status Box */
+        #status-box {
             position: fixed;
             top: 20px;
-            width: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255, 255, 255, 0.9);
+            padding: 15px;
+            border-radius: 10px;
             text-align: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            z-index: 3;
+            width: 80%;
+            max-width: 300px;
+        }
+
+        /* Start Button Overlay */
+        #start-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: white;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+        }
+        button {
+            padding: 15px 30px;
+            font-size: 18px;
+            background: #007bff;
             color: white;
-            font-family: sans-serif;
-            text-shadow: 1px 1px 2px black;
-            z-index: 50;
-            pointer-events: none;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
         }
     </style>
 </head>
+<body>
 
-<body style="margin: 0; overflow: hidden;">
+    <div id="start-overlay">
+        <h2>Wedding Navigator</h2>
+        <p>Go outside for best results.</p>
+        <button onclick="startNavigation()">Start Navigation</button>
+    </div>
 
-    <div class="instructions">Point camera at the Wedding Card (Hiro Marker)</div>
-
-    <a href="maps.html" id="nav-btn">📍 Get Directions to Venue</a>
-
-    <a-scene embedded arjs>
-        
-        <a-marker preset="hiro" id="my-marker">
-            
-            <a-box position="0 0.5 0" 
-                   material="color: #d4af37; opacity: 0.9;" 
-                   animation="property: rotation; to: 0 360 0; loop: true; dur: 4000">
-            </a-box>
-
-            <a-text value="Rohan & Priya" position="0 1.5 0" align="center" color="#FFF" scale="2 2 2"></a-text>
-            <a-text value="Jan 25, 2026" position="0 1.2 0" align="center" color="#DDD"></a-text>
-
-        </a-marker>
-
-        <a-entity camera></a-entity>
-    </a-scene>
+    <div id="status-box">Waiting for start...</div>
+    <div id="arrow-container">
+        <div id="arrow-icon"></div>
+    </div>
 
     <script>
-        // Logic to show the button ONLY when marker is found
-        const marker = document.querySelector('#my-marker');
-        const btn = document.querySelector('#nav-btn');
-
-        marker.addEventListener('markerFound', () => {
-            console.log("Card Detected!");
-            btn.style.display = 'block'; // Reveal the button
-        });
+        // ================= CONFIGURATION =================
+        const MAPBOX_TOKEN = 'pk.eyJ1IjoiaGVtYW50aDg1MDMiLCJhIjoiY21rNzV5c2w2MHlqeTNncjI5bjkyeWJwaiJ9.NnunzAB_24Ntn83H5hRcyQ'; 
         
-        // Optional: Hide button if lost? 
-        // We usually keep it visible so the user can click it easily.
+        // DESTINATION: [Longitude, Latitude] (Mapbox Order!)
+        // Example: VIT Vellore Main Gate area
+        const DESTINATION = [79.1559, 12.9692]; 
+        
+        const TURN_RADIUS = 15; // Meters (Distance to trigger next turn)
+        // =================================================
+
+        // STATE VARIABLES
+        let turnQueue = [];
+        let currentHeading = 0;
+        let isRouteLoaded = false;
+        let watchId = null;
+
+        async function startNavigation() {
+            // 1. Request Device Orientation (iOS 13+ Requirement)
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                try {
+                    const permission = await DeviceOrientationEvent.requestPermission();
+                    if (permission === 'granted') {
+                        window.addEventListener('deviceorientation', handleOrientation);
+                    } else {
+                        alert("Permission denied. Arrow won't rotate.");
+                    }
+                } catch (e) {
+                    console.error(e);
+                }
+            } else {
+                // Non-iOS devices
+                window.addEventListener('deviceorientation', handleOrientation);
+            }
+
+            // 2. Hide Start Screen & Show Arrow
+            document.getElementById('start-overlay').style.display = 'none';
+            document.getElementById('arrow-icon').style.display = 'block';
+            document.getElementById('status-box').innerText = "Locating GPS...";
+
+            // 3. Start GPS Tracking
+            if ('geolocation' in navigator) {
+                watchId = navigator.geolocation.watchPosition(
+                    handleLocationUpdate, 
+                    (err) => {
+                        console.error(err);
+                        document.getElementById('status-box').innerText = "GPS Error: " + err.message;
+                    },
+                    { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
+                );
+            } else {
+                alert("Geolocation not supported by this browser.");
+            }
+        }
+
+        // --- MAIN LOGIC LOOP ---
+        function handleLocationUpdate(position) {
+            const userLat = position.coords.latitude;
+            const userLon = position.coords.longitude;
+
+            // FETCH ROUTE (Once Only)
+            if (!isRouteLoaded) {
+                fetchMapboxRoute(userLon, userLat); // Pass Longitude FIRST
+                isRouteLoaded = true;
+                return; // Wait for next update
+            }
+
+            // NAVIGATION LOGIC
+            if (turnQueue.length > 0) {
+                const target = turnQueue[0];
+                const dist = calculateDistance(userLat, userLon, target.lat, target.lon);
+
+                document.getElementById('status-box').innerText = 
+                    `${target.instruction}\n(${Math.round(dist)}m away)`;
+
+                // CHECK: REACHED TURN?
+                if (dist < TURN_RADIUS) {
+                    if (turnQueue.length === 1) {
+                        // FINAL DESTINATION
+                        document.getElementById('status-box').innerText = "YOU HAVE ARRIVED!";
+                        document.getElementById('status-box').style.background = "#90EE90"; // Light Green
+                        document.getElementById('arrow-icon').style.display = 'none';
+                        navigator.geolocation.clearWatch(watchId); // Stop GPS to save battery
+                        return;
+                    } else {
+                        // NEXT TURN
+                        turnQueue.shift(); // Remove current node
+                        console.log("Turn reached! Aiming for next node.");
+                        // The arrow will update on the NEXT GPS tick automatically
+                    }
+                }
+
+                // UPDATE ARROW ROTATION
+                const bearing = calculateBearing(userLat, userLon, target.lat, target.lon);
+                // Arrow Direction = Destination Bearing - Device Heading
+                const arrowRotation = bearing - currentHeading;
+                document.getElementById('arrow-icon').style.transform = `rotate(${arrowRotation}deg)`;
+            }
+        }
+
+        // --- API HANDLER ---
+        async function fetchMapboxRoute(startLon, startLat) {
+            document.getElementById('status-box').innerText = "Calculating Path...";
+            
+            const url = `https://api.mapbox.com/directions/v5/mapbox/walking/${startLon},${startLat};${DESTINATION[0]},${DESTINATION[1]}?steps=true&geometries=geojson&access_token=${MAPBOX_TOKEN}`;
+
+            try {
+                const res = await fetch(url);
+                const data = await res.json();
+
+                if (!data.routes || data.routes.length === 0) {
+                    throw new Error("No route found");
+                }
+
+                const steps = data.routes[0].legs[0].steps;
+
+                // Extract relevant data. Mapbox gives [Lon, Lat]
+                turnQueue = steps.map(step => ({
+                    lat: step.maneuver.location[1],
+                    lon: step.maneuver.location[0],
+                    instruction: step.maneuver.instruction
+                }));
+
+                // Remove the "Depart" step if it's too close (optional cleanup)
+                if (turnQueue.length > 1) turnQueue.shift();
+
+                document.getElementById('status-box').innerText = "Follow the arrow!";
+            } catch (err) {
+                console.error(err);
+                document.getElementById('status-box').innerText = "Route Error. Check Console/Key.";
+                isRouteLoaded = false; // Retry next time
+            }
+        }
+
+        // --- SENSORS & MATH ---
+        function handleOrientation(event) {
+            // iOS: webkitCompassHeading, Android: alpha
+            if (event.webkitCompassHeading) {
+                currentHeading = event.webkitCompassHeading;
+            } else if (event.alpha) {
+                currentHeading = 360 - event.alpha;
+            }
+        }
+
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371e3; // Earth radius (meters)
+            const φ1 = lat1 * Math.PI/180;
+            const φ2 = lat2 * Math.PI/180;
+            const Δφ = (lat2-lat1) * Math.PI/180;
+            const Δλ = (lon2-lon1) * Math.PI/180;
+            const a = Math.sin(Δφ/2)**2 + Math.cos(φ1)*Math.cos(φ2)*Math.sin(Δλ/2)**2;
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        }
+
+        function calculateBearing(lat1, lon1, lat2, lon2) {
+            const φ1 = lat1 * Math.PI/180;
+            const φ2 = lat2 * Math.PI/180;
+            const Δλ = (lon2-lon1) * Math.PI/180;
+            const y = Math.sin(Δλ) * Math.cos(φ2);
+            const x = Math.cos(φ1)*Math.sin(φ2) - Math.sin(φ1)*Math.cos(φ2)*Math.cos(Δλ);
+            const brng = Math.atan2(y, x) * 180 / Math.PI;
+            return (brng + 360) % 360;
+        }
     </script>
 </body>
 </html>
