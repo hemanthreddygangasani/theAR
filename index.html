@@ -11,38 +11,39 @@
         /* UI Reset */
         body { margin: 0; overflow: hidden; background: black; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
         
-        /* 1. The Camera Feed */
+        /* 1. The Camera Feed (Background Layer) */
         #camera-feed {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             object-fit: cover; z-index: -2;
         }
 
-        /* 2. The 3D AR Layer */
+        /* 2. The 3D AR Layer (Transparent Canvas) */
         #ar-canvas {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            z-index: -1; pointer-events: none;
+            z-index: -1; pointer-events: none; /* Let touches pass through */
         }
 
-        /* 3. HUD (Distance & Instruction) */
+        /* 3. HUD (Distance Badge) */
         #hud {
             position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.7); 
-            padding: 12px 24px; 
-            border-radius: 50px;
-            border: 3px solid #00ff00; /* Start Green */
-            color: #fff; font-weight: 800;
-            font-size: 18px; z-index: 10; text-transform: uppercase;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.5); 
-            white-space: nowrap;
-            transition: border-color 0.3s, color 0.3s;
+            background: rgba(0, 0, 0, 0.7); padding: 12px 24px; border-radius: 50px;
+            border: 2px solid #00e5ff; color: #fff; font-weight: bold;
+            font-size: 16px; z-index: 10; text-transform: uppercase;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.5); white-space: nowrap;
         }
 
-        /* 4. Mini Map */
+        /* 4. Mini Map (Updated: Smaller & Square) */
         #mini-map {
-            position: fixed; bottom: 30px; right: 20px;
-            width: 140px; height: 140px; 
-            border-radius: 20px; border: 4px solid white; 
-            background: #222; z-index: 10;
+            position: fixed; bottom: 20px; right: 20px;
+            
+            /* SQUARE DIMENSIONS */
+            width: 120px; 
+            height: 120px; 
+            
+            border-radius: 15px; /* Rounded Corners */
+            border: 3px solid white; 
+            background: #222; 
+            z-index: 10;
             box-shadow: 0 10px 30px rgba(0,0,0,0.8);
             overflow: hidden;
         }
@@ -71,19 +72,14 @@
 
     <script>
         // ================= CONFIGURATION =================
-        // 🔴🔴 PASTE YOUR TOKEN BELOW 🔴🔴
         const MAPBOX_TOKEN = 'pk.eyJ1IjoiaGVtYW50aDg1MDMiLCJhIjoiY21rNzV5c2w2MHlqeTNncjI5bjkyeWJwaiJ9.NnunzAB_24Ntn83H5hRcyQ'; 
-        
-        // DESTINATION: [Longitude, Latitude]
         const DESTINATION = [79.1559, 12.9692]; // VIT Vellore
 
         // ================= VARIABLES =================
         let map, scene, camera, renderer, arrowMesh;
-        let shaftMesh, headMesh; 
         let steps = [], currentStepIndex = 0;
-        let deviceHeading = 0; 
-        let targetBearing = 0; 
-        let currentDist = 999; 
+        let deviceHeading = 0; // Where phone is looking
+        let targetBearing = 0; // Where we want to go
         let isRunning = false;
 
         // ================= STARTUP =================
@@ -95,104 +91,93 @@
             document.getElementById("start-btn").style.display = "none";
             document.getElementById("hud").innerText = "Aligning Sensors...";
             
-            // 1. Camera Access
+            // 1. Start Camera
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ 
                     video: { facingMode: "environment" } 
                 });
                 document.getElementById("camera-feed").srcObject = stream;
             } catch(e) { 
-                console.error(e);
-                alert("Camera Access Denied. App needs camera to work.");
+                console.error(e); 
+                alert("Camera permission denied. Please allow camera access."); 
             }
 
-            // 2. Initialize Systems
+            // 2. Init Systems
             initThreeJS();
             initMap();
             requestSensors();
             
-            // 3. Start Animation
+            // 3. Start Loop
             isRunning = true;
             animate(); 
         }
 
-        // ================= 3D ENGINE =================
+        // ================= 3D ENGINE (THREE.JS) =================
         function initThreeJS() {
             const canvas = document.getElementById('ar-canvas');
+            
+            // Scene
             scene = new THREE.Scene();
+            
+            // Camera
             camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
             
+            // Renderer
             renderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true, antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(window.devicePixelRatio);
 
-            // --- BUILD ARROW ---
+            // --- BUILD THE 3D ARROW ---
             arrowMesh = new THREE.Group();
 
-            // Shaft (Green initially)
+            // Shaft
             const geometryShaft = new THREE.CylinderGeometry(0.2, 0.2, 2, 32);
-            const materialShaft = new THREE.MeshBasicMaterial({ color: 0x00ff00 }); 
-            shaftMesh = new THREE.Mesh(geometryShaft, materialShaft);
-            shaftMesh.rotation.x = Math.PI / 2;
-            shaftMesh.position.z = 1;
+            const materialShaft = new THREE.MeshBasicMaterial({ color: 0x00e5ff });
+            const shaft = new THREE.Mesh(geometryShaft, materialShaft);
+            shaft.rotation.x = Math.PI / 2;
+            shaft.position.z = 1;
 
-            // Head (Green initially)
+            // Head
             const geometryHead = new THREE.ConeGeometry(0.6, 1.2, 32);
-            const materialHead = new THREE.MeshBasicMaterial({ color: 0x00ff00 }); 
-            headMesh = new THREE.Mesh(geometryHead, materialHead);
-            headMesh.rotation.x = Math.PI / 2;
-            headMesh.position.z = -0.5;
+            const materialHead = new THREE.MeshBasicMaterial({ color: 0x00e5ff });
+            const head = new THREE.Mesh(geometryHead, materialHead);
+            head.rotation.x = Math.PI / 2;
+            head.position.z = -0.5;
 
-            arrowMesh.add(shaftMesh);
-            arrowMesh.add(headMesh);
+            // Glow Outline (Wireframe)
+            const wiregeo = new THREE.ConeGeometry(0.7, 1.3, 16);
+            const wiremat = new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true, transparent: true, opacity: 0.5 });
+            const glow = new THREE.Mesh(wiregeo, wiremat);
+            glow.rotation.x = Math.PI / 2;
+            glow.position.z = -0.5;
 
-            // Position: On ground (-1.5), 4m ahead (-4)
+            arrowMesh.add(shaft);
+            arrowMesh.add(head);
+            arrowMesh.add(glow);
+
+            // Position: 1.5m down (ground), 4m forward
             arrowMesh.position.set(0, -1.5, -4); 
             scene.add(arrowMesh);
+
+            // Light
             scene.add(new THREE.AmbientLight(0xffffff, 1));
         }
 
-        // ================= ANIMATION LOOP =================
+        // ================= 3D ANIMATION LOOP =================
         function animate() {
             requestAnimationFrame(animate);
 
             if(isRunning && arrowMesh) {
-                let desiredRotationY = 0;
-
-                // --- CRUISE MODE vs TURN MODE LOGIC ---
-                // > 20m: Cruise Mode (Green, Point Straight)
-                // < 20m: Turn Mode (Cyan, Point to Real World Coordinate)
+                // AR MATH: 
+                // Rotate arrow based on bearing difference.
+                // Multiplied by -1 because Three.js Y-rotation is Counter-Clockwise
+                let desiredRotationY = (targetBearing - deviceHeading) * (Math.PI / 180);
                 
-                if (currentDist > 20) {
-                    // GO STRAIGHT (HUD Mode)
-                    desiredRotationY = 0; 
-                    
-                    // Visuals: Green
-                    if(shaftMesh) shaftMesh.material.color.setHex(0x00ff00); 
-                    if(headMesh) headMesh.material.color.setHex(0x00ff00);
-                } 
-                else {
-                    // TURN NOW (Real World Lock)
-                    // Calculate relative angle: Target - Phone Heading
-                    let bearingDiff = targetBearing - deviceHeading;
-                    desiredRotationY = -bearingDiff * (Math.PI / 180); // Invert for Three.js
-
-                    // Visuals: Cyan
-                    if(shaftMesh) shaftMesh.material.color.setHex(0x00e5ff); 
-                    if(headMesh) headMesh.material.color.setHex(0x00e5ff);
-                }
-
-                // Smooth Rotation (Lerp with wrap-around fix)
+                // Smooth Lerp (Ease into rotation)
                 let currentY = arrowMesh.rotation.y;
-                let diff = desiredRotationY - currentY;
-                
-                // Fix the 360-degree jump (so arrow doesn't spin the long way round)
-                while (diff > Math.PI) diff -= Math.PI * 2;
-                while (diff < -Math.PI) diff += Math.PI * 2;
-                
-                arrowMesh.rotation.y += diff * 0.1; // 0.1 = Smoothing factor
+                arrowMesh.rotation.y += ((-desiredRotationY) - currentY) * 0.1;
 
-                // Bobbing Effect
+                // Bobbing Effect (Visual Polish)
                 arrowMesh.position.y = -1.5 + Math.sin(Date.now() * 0.003) * 0.1;
                 
                 renderer.render(scene, camera);
@@ -203,19 +188,24 @@
         function requestSensors() {
             // iOS Permission Check
             if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-                DeviceOrientationEvent.requestPermission().then(r => {
-                    if (r === 'granted') window.addEventListener('deviceorientation', handleOrientation);
-                });
+                DeviceOrientationEvent.requestPermission()
+                    .then(resp => {
+                        if (resp === 'granted') window.addEventListener('deviceorientation', handleOrientation);
+                    })
+                    .catch(console.error);
             } else {
+                // Android / Standard
                 window.addEventListener('deviceorientation', handleOrientation);
             }
 
-            // GPS Tracking
+            // GPS
             if(navigator.geolocation) {
                 navigator.geolocation.watchPosition(handleGPS, 
-                    (err) => console.error("GPS Error:", err), 
+                    err => { console.error(err); document.getElementById("hud").innerText = "GPS Signal Lost"; }, 
                     { enableHighAccuracy: true, maximumAge: 0 }
                 );
+            } else {
+                alert("GPS not supported on this device.");
             }
         }
 
@@ -229,58 +219,50 @@
             const lat = pos.coords.latitude;
             const lng = pos.coords.longitude;
             
-            // 1. Initial Route Fetch
+            // Fetch Route Once
             if (steps.length === 0) getRoute(lat, lng);
 
-            // 2. Update Map Marker
+            // Update Map Marker
             if(map && window.userMarker) {
                 window.userMarker.setLngLat([lng, lat]);
                 map.flyTo({ center: [lng, lat], zoom: 17 });
             }
 
-            // 3. Navigation Logic
+            // Logic: Distance & Turns
             if (steps.length > 0 && currentStepIndex < steps.length) {
-                const target = steps[currentStepIndex].maneuver.location; 
+                const target = steps[currentStepIndex].maneuver.location; // [Lng, Lat]
+                const dist = getDistance(lat, lng, target[1], target[0]);
                 
-                // Update Global Distance
-                currentDist = getDistance(lat, lng, target[1], target[0]);
-                
-                // Update HUD Text & Color
-                const hud = document.getElementById("hud");
-                const instr = steps[currentStepIndex].maneuver.instruction;
-                hud.innerText = `${instr} (${Math.round(currentDist)}m)`;
-                
-                if(currentDist > 20) {
-                    hud.style.borderColor = "#00ff00"; // Green Border
-                    hud.style.color = "#00ff00";
-                } else {
-                    hud.style.borderColor = "#00e5ff"; // Cyan Border
-                    hud.style.color = "#00e5ff";
-                }
+                document.getElementById("hud").innerText = 
+                    `${steps[currentStepIndex].maneuver.instruction} (${Math.round(dist)}m)`;
 
-                // Update Target Bearing (Used only in Turn Mode)
+                // Update Target Bearing for the AR Arrow
                 targetBearing = getBearing(lat, lng, target[1], target[0]);
 
-                // Switch to Next Turn if close
-                if (currentDist < 20 && currentStepIndex < steps.length - 1) {
+                // Switch to next turn if close (20m radius)
+                if (dist < 20 && currentStepIndex < steps.length - 1) {
                     currentStepIndex++;
-                    // Note: currentDist will jump to high number next cycle, arrow turns Green.
                 }
             }
         }
 
-        // ================= HELPERS =================
+        // ================= MAPBOX & MATH =================
         function initMap() {
             mapboxgl.accessToken = MAPBOX_TOKEN;
             map = new mapboxgl.Map({
                 container: 'mini-map', style: 'mapbox://styles/mapbox/dark-v11',
                 center: DESTINATION, zoom: 16, attributionControl: false
             });
+            
+            // User Marker
             const el = document.createElement('div');
-            el.className = 'marker'; el.style.backgroundColor = '#00ff00';
-            el.style.width = '15px'; el.style.height = '15px';
+            el.className = 'marker';
+            el.style.backgroundColor = '#00e5ff';
+            el.style.width = '12px'; el.style.height = '12px';
             el.style.borderRadius = '50%'; el.style.border = '2px solid white';
             window.userMarker = new mapboxgl.Marker(el).setLngLat(DESTINATION).addTo(map);
+
+            // Destination
             new mapboxgl.Marker({ color: 'red' }).setLngLat(DESTINATION).addTo(map);
         }
 
@@ -291,16 +273,16 @@
                 const data = await res.json();
                 if(data.routes && data.routes.length > 0) {
                     steps = data.routes[0].legs[0].steps;
-                    if(steps.length > 1) steps.shift(); // Remove "Depart"
+                    if(steps.length > 1) steps.shift(); // Remove "Depart" step
                     
-                    // Draw Green Path on Map
+                    // Draw Line
                     const geojson = data.routes[0].geometry;
                     map.on('load', () => {
                         map.addLayer({
                             id: 'route', type: 'line',
                             source: { type: 'geojson', data: { type: 'Feature', geometry: geojson } },
                             layout: { 'line-join': 'round', 'line-cap': 'round' },
-                            paint: { 'line-color': '#00ff00', 'line-width': 4 }
+                            paint: { 'line-color': '#00e5ff', 'line-width': 4 }
                         });
                     });
                 }
@@ -322,7 +304,7 @@
             return (Math.atan2(y, x)*180/Math.PI + 360)%360;
         }
 
-        // Handle Resize
+        // Resize Handler
         window.addEventListener('resize', () => {
             if(camera && renderer) {
                 camera.aspect = window.innerWidth / window.innerHeight;
