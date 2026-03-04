@@ -1,185 +1,346 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Node-Based AR Navigation</title>
-    <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
-    <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>3D AR Wedding Navigation</title>
+    
+    <link href="https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.css" rel="stylesheet">
     
     <style>
-        .hud {
-            position: fixed;
-            bottom: 30px;
-            left: 0;
-            width: 100%;
-            text-align: center;
-            z-index: 999;
-            font-family: sans-serif;
-            pointer-events: none;
+        /* UI Reset */
+        body { margin: 0; overflow: hidden; background: black; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        
+        /* 1. Camera Feed (Background) */
+        #camera-feed {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            object-fit: cover; z-index: -2;
         }
-        .instruction-box {
-            background: rgba(0, 0, 0, 0.85);
-            color: #00ff00; 
-            padding: 15px 25px;
-            border-radius: 15px;
-            font-size: 1.2rem;
-            display: inline-block;
-            border: 2px solid #00ff00;
-            box-shadow: 0 0 15px rgba(0, 255, 0, 0.4);
-            max-width: 80%; /* Keeps long text inside screen */
+
+        /* 2. HUD Directions (Top Center) */
+        #hud {
+            position: fixed; top: 40px; left: 50%; transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.85); 
+            padding: 15px 30px; 
+            border-radius: 50px;
+            border: 3px solid #00ff00; 
+            color: #fff; font-weight: 800;
+            font-size: 18px; z-index: 10; text-transform: uppercase;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.5); 
+            white-space: nowrap; text-align: center;
         }
-        .sub-text {
-            display: block;
-            font-size: 1rem;
-            color: #fff;
-            margin-top: 5px;
-            font-weight: bold;
+
+        /* 3. 3D Arrow Compass (Bottom Left) */
+        #ar-canvas {
+            position: fixed; bottom: 30px; left: 20px; 
+            width: 140px; height: 140px;
+            z-index: 10; pointer-events: none;
+            background: rgba(0,0,0,0.6); 
+            border-radius: 50%;
+            border: 3px solid #00ff00;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+        }
+
+        /* 4. Mini Map (Bottom Right) */
+        #mini-map {
+            position: fixed; bottom: 30px; right: 20px;
+            width: 140px; height: 140px; 
+            border-radius: 50%; 
+            border: 3px solid white; 
+            background: #222; z-index: 10;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+            overflow: hidden;
+        }
+
+        /* 5. Start Button */
+        #start-btn {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            padding: 20px 50px; font-size: 20px; background: #00e5ff; color: #000;
+            border: none; border-radius: 50px; font-weight: 900; z-index: 50; cursor: pointer;
+            box-shadow: 0 0 30px #00e5ff;
         }
     </style>
 </head>
+<body>
 
-<body style='margin: 0; overflow: hidden;'>
+    <video id="camera-feed" autoplay playsinline muted></video>
 
-    <div class="hud">
-        <div class="instruction-box" id="msg">
-            Initializing System...
-            <span class="sub-text">Connecting to Satellites</span>
-        </div>
-    </div>
+    <canvas id="ar-canvas"></canvas>
 
-    <a-scene
-        vr-mode-ui="enabled: false"
-        embedded
-        arjs='sourceType: webcam; videoTexture: true; debugUIEnabled: false;'>
+    <div id="mini-map"></div>
 
-        <a-camera gps-camera="gpsMinDistance: 3" rotation-reader id="camera">
-            
-            <a-entity 
-                id="guide-arrow"
-                visible="false"
-                geometry="primitive: cone; radiusBottom: 0.15; height: 0.5"
-                material="color: #ff0000; opacity: 1.0; shader: flat;"
-                position="0 -0.5 -1.5"
-                rotation="90 0 0"> 
-            </a-entity>
+    <div id="hud">Waiting for Start...</div>
 
-        </a-camera>
+    <button id="start-btn" onclick="startAR()">ENTER AR MODE</button>
 
-    </a-scene>
+    <script src="https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 
     <script>
-        // ============================================
-        // ⚠️ PASTE YOUR MAPBOX TOKEN HERE
-        // ============================================
+        // ================= CONFIGURATION =================
+        // ⚠️ PASTE YOUR MAPBOX TOKEN HERE (Keep it secret!)
         const MAPBOX_TOKEN = 'pk.eyJ1IjoiaGVtYW50aDg1MDMiLCJhIjoiY21rNzV5c2w2MHlqeTNncjI5bjkyeWJwaiJ9.NnunzAB_24Ntn83H5hRcyQ'; 
+        
+        const DESTINATION = [79.1559, 12.9692]; // VIT Vellore
+        const CARROT_DIST = 20; 
 
-        // ============================================
-        // ⚠️ SET DESTINATION [Longitude, Latitude]
-        // ============================================
-        const DESTINATION = [79.1559, 12.9692]; // VIT Main Gate
-
-        // ============================================
-        // NODE LOGIC VARIABLES
-        // ============================================
-        let turnNodes = [];
-        let turnInstructions = [];
-        let currentNodeIndex = 0;
-        const NODE_RADIUS = 15; // In meters: How close until it snaps to the next turn?
-
-        window.onload = () => {
-            const msgBox = document.querySelector('#msg');
-            const arrow = document.querySelector('#guide-arrow');
-            const camera = document.querySelector('#camera');
-
-            if (navigator.geolocation) {
-                navigator.geolocation.watchPosition(async (position) => {
-                    const userLat = position.coords.latitude;
-                    const userLon = position.coords.longitude;
-
-                    // 1. Fetch Nodes on first run
-                    if (turnNodes.length === 0) {
-                        msgBox.innerHTML = "Mapping Route...<br><span class='sub-text'>Extracting Turn Nodes</span>";
-                        await getPathFromMapbox(userLon, userLat);
-                    }
-
-                    // 2. Navigation Loop
-                    if (turnNodes.length > 0) {
-                        const targetNode = turnNodes[currentNodeIndex];
-                        const instructionText = turnInstructions[currentNodeIndex];
-                        
-                        // Calculate distance to the exact Turn Node
-                        const dist = calculateDistance(userLat, userLon, targetNode[1], targetNode[0]);
-
-                        // Update Screen Text with actual directions
-                        msgBox.innerHTML = `${instructionText}<br><span class='sub-text'>${Math.round(dist)} meters ahead</span>`;
-                        arrow.setAttribute('visible', 'true');
-
-                        // 3. Node Radius Check
-                        if (dist < NODE_RADIUS) {
-                            if (currentNodeIndex < turnNodes.length - 1) {
-                                // Jump to next node!
-                                currentNodeIndex++;
-                                // Optional vibrate if phone supports it
-                                if("vibrate" in navigator) navigator.vibrate(200); 
-                            } else {
-                                msgBox.innerHTML = "🎉 YOU HAVE ARRIVED! 🎉<br><span class='sub-text'>Destination Reached</span>";
-                                arrow.setAttribute('visible', 'false');
-                            }
-                        }
-
-                        // 4. Arrow Pointing Logic
-                        const targetBearing = calculateBearing(userLat, userLon, targetNode[1], targetNode[0]);
-                        const currentRotation = camera.getAttribute('rotation');
-                        const userHeading = currentRotation ? currentRotation.y : 0;
-                        const relativeHeading = targetBearing - userHeading;
-
-                        arrow.object3D.rotation.y = THREE.Math.degToRad(-relativeHeading);
-                        arrow.object3D.rotation.x = THREE.Math.degToRad(90); 
-                    }
-
-                }, (err) => {
-                    console.error(err);
-                    msgBox.innerHTML = "GPS Error<br><span class='sub-text'>Please enable Location</span>";
-                }, { enableHighAccuracy: true });
+        // ================= VARIABLES =================
+        let map, scene, camera, renderer, arrowMesh;
+        let mainArrowModel; 
+        let routeCoords = []; 
+        let steps = []; 
+        let currentStepIndex = 0;
+        let deviceHeading = 0; 
+        let targetBearing = 0; 
+        let isRunning = false;
+        let isFetchingRoute = false; // Bug Fix 1: Prevents API spam
+        
+        // ================= STARTUP =================
+        async function startAR() {
+            if(MAPBOX_TOKEN === 'YOUR_MAPBOX_TOKEN_HERE') {
+                alert("⚠️ Error: Paste your Mapbox Token into the code first!"); return;
             }
-        };
-
-        // --- MAPBOX NODE EXTRACTION ---
-        async function getPathFromMapbox(startLon, startLat) {
-            const url = `https://api.mapbox.com/directions/v5/mapbox/walking/${startLon},${startLat};${DESTINATION[0]},${DESTINATION[1]}?steps=true&geometries=geojson&access_token=${MAPBOX_TOKEN}`;
+            document.getElementById("start-btn").style.display = "none";
+            document.getElementById("hud").innerHTML = "Aligning Satellites...<br><span style='font-size:12px; color:#aaa;'>Please wait</span>";
+            
             try {
-                const response = await fetch(url);
-                const data = await response.json();
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: "environment" } 
+                });
+                document.getElementById("camera-feed").srcObject = stream;
+            } catch(e) { console.error(e); alert("Camera access required for AR background."); }
+
+            initThreeJS();
+            initMap();
+            requestSensors();
+            
+            isRunning = true;
+            animate(); 
+        }
+
+        // ================= 3D COMPASS ENGINE (BOTTOM LEFT) =================
+        function initThreeJS() {
+            const canvas = document.getElementById('ar-canvas');
+            scene = new THREE.Scene();
+            
+            camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+            camera.position.set(0, 2.5, 0); 
+            camera.lookAt(0, 0, -3);
+
+            renderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true, antialias: true });
+            renderer.setSize(140, 140);
+            renderer.setPixelRatio(window.devicePixelRatio);
+
+            arrowMesh = new THREE.Group();
+            const shape = new THREE.Shape();
+            const width = 0.5;
+            const headWidth = 1.0;
+            const headLen = 1.0;
+            const shaftLen = 1.5;
+
+            shape.moveTo(width/2, 0);                 
+            shape.lineTo(width/2, shaftLen);          
+            shape.lineTo(headWidth, shaftLen);        
+            shape.lineTo(0, shaftLen + headLen);      
+            shape.lineTo(-headWidth, shaftLen);       
+            shape.lineTo(-width/2, shaftLen);         
+            shape.lineTo(-width/2, 0);                
+            shape.lineTo(width/2, 0);                 
+
+            const extrudeSettings = { steps: 1, depth: 0.3, bevelEnabled: true, bevelThickness: 0.05, bevelSize: 0.05, bevelSegments: 2 };
+            const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+            geometry.center();
+
+            const material = new THREE.MeshLambertMaterial({ color: 0x00ff00 }); 
+            mainArrowModel = new THREE.Mesh(geometry, material);
+
+            mainArrowModel.rotation.x = -Math.PI / 2;
+            mainArrowModel.rotation.z = Math.PI;
+
+            arrowMesh.add(mainArrowModel);
+            arrowMesh.position.set(0, 0, -3); 
+            scene.add(arrowMesh);
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+            scene.add(ambientLight);
+            
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
+            dirLight.position.set(5, 10, 5);
+            scene.add(dirLight);
+        }
+
+        // ================= ANIMATION LOOP =================
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if(isRunning && arrowMesh) {
+                let desiredRotationY = (targetBearing - deviceHeading) * (Math.PI / 180);
+                desiredRotationY = -desiredRotationY; 
+
+                let currentY = arrowMesh.rotation.y;
+                let diff = desiredRotationY - currentY;
+                while (diff > Math.PI) diff -= Math.PI * 2;
+                while (diff < -Math.PI) diff += Math.PI * 2;
+                arrowMesh.rotation.y += diff * 0.15; 
                 
-                if (data.routes && data.routes.length > 0) {
-                    // Extract the "Steps" (The Nodes) instead of the raw geometry line
-                    const steps = data.routes[0].legs[0].steps;
-                    
-                    // Map the coordinates and text instructions to our arrays
-                    turnNodes = steps.map(step => step.maneuver.location);
-                    turnInstructions = steps.map(step => step.maneuver.instruction);
-                    
-                    console.log("Extracted Nodes:", turnNodes.length);
+                renderer.render(scene, camera);
+            }
+        }
+
+        // ================= SENSORS & GPS =================
+        function requestSensors() {
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                DeviceOrientationEvent.requestPermission().then(r => {
+                    if (r === 'granted') window.addEventListener('deviceorientation', handleOrientation);
+                });
+            } else {
+                window.addEventListener('deviceorientation', handleOrientation);
+            }
+
+            if(navigator.geolocation) {
+                navigator.geolocation.watchPosition(handleGPS, console.error, { enableHighAccuracy: true });
+            }
+        }
+
+        function handleOrientation(e) {
+            let heading = e.webkitCompassHeading || (e.alpha ? 360 - e.alpha : 0);
+            deviceHeading = heading;
+        }
+
+        function handleGPS(pos) {
+            const lat = pos.coords.latitude;
+            const lng = pos.coords.longitude;
+
+            // Bug Fix 1: Only fetch if we have no route AND we aren't currently fetching one
+            if (routeCoords.length === 0 && !isFetchingRoute) {
+                isFetchingRoute = true;
+                getRoute(lat, lng);
+            }
+
+            if(map && window.userMarker) {
+                window.userMarker.setLngLat([lng, lat]);
+                map.flyTo({ center: [lng, lat], zoom: 17, speed: 0.5 });
+            }
+
+            if (routeCoords.length > 0) {
+                const carrot = getCarrotPoint(lat, lng, routeCoords, CARROT_DIST);
+                targetBearing = getBearing(lat, lng, carrot[1], carrot[0]);
+                updateHUD(lat, lng);
+            }
+        }
+
+        // ================= NAVIGATION BRAIN =================
+        function getCarrotPoint(lat, lng, coords, lookAheadDist) {
+            let closestIdx = 0;
+            let minDist = Infinity;
+            
+            for(let i=0; i<coords.length; i++) {
+                const d = getDistance(lat, lng, coords[i][1], coords[i][0]);
+                if(d < minDist) { minDist = d; closestIdx = i; }
+            }
+
+            let targetIdx = closestIdx;
+            let distAccum = 0;
+            
+            while(targetIdx < coords.length - 1) {
+                const p1 = coords[targetIdx];
+                const p2 = coords[targetIdx+1];
+                const d = getDistance(p1[1], p1[0], p2[1], p2[0]);
+                distAccum += d;
+                targetIdx++;
+                if(distAccum > lookAheadDist) break;
+            }
+            return coords[targetIdx]; 
+        }
+
+        function updateHUD(lat, lng) {
+            if (steps.length > 0 && currentStepIndex < steps.length) {
+                const targetStep = steps[currentStepIndex].maneuver.location;
+                const distToTurn = getDistance(lat, lng, targetStep[1], targetStep[0]);
+                
+                const hud = document.getElementById("hud");
+                const instr = steps[currentStepIndex].maneuver.instruction;
+                
+                hud.innerHTML = `${instr}<br><span style="font-size:14px; color:#aaa;">In ${Math.round(distToTurn)} meters</span>`;
+
+                if(distToTurn < 15) {
+                    hud.style.borderColor = "#00e5ff"; 
+                    if(mainArrowModel) mainArrowModel.material.color.setHex(0x00e5ff);
+                    if(currentStepIndex < steps.length - 1) currentStepIndex++; 
                 } else {
-                    document.querySelector('#msg').innerHTML = "No Route Found!<br><span class='sub-text'>Check coordinates</span>";
+                    hud.style.borderColor = "#00ff00"; 
+                    if(mainArrowModel) mainArrowModel.material.color.setHex(0x00ff00);
                 }
-            } catch (error) { console.error(error); }
+            }
         }
 
-        // --- MATH HELPERS ---
-        function calculateDistance(lat1, lon1, lat2, lon2) {
-            const R = 6371e3; 
-            const φ1 = lat1 * Math.PI/180;
-            const φ2 = lat2 * Math.PI/180;
-            const Δφ = (lat2-lat1) * Math.PI/180;
-            const Δλ = (lon2-lon1) * Math.PI/180;
-            const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
-            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        // ================= MAPBOX API & MATH =================
+        function initMap() {
+            mapboxgl.accessToken = MAPBOX_TOKEN;
+            map = new mapboxgl.Map({
+                container: 'mini-map', style: 'mapbox://styles/mapbox/dark-v11',
+                center: DESTINATION, zoom: 16, attributionControl: false
+            });
+            const el = document.createElement('div');
+            el.style.backgroundColor = '#00e5ff'; 
+            el.style.width = '15px'; el.style.height = '15px';
+            el.style.borderRadius = '50%'; el.style.border = '2px solid white';
+            el.style.boxShadow = "0 0 10px #00e5ff";
+            window.userMarker = new mapboxgl.Marker(el).setLngLat(DESTINATION).addTo(map);
+            new mapboxgl.Marker({ color: 'red' }).setLngLat(DESTINATION).addTo(map);
         }
 
-        function calculateBearing(lat1, lon1, lat2, lon2) {
-            const y = Math.sin(lon2 - lon1) * Math.cos(lat2);
-            const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(lon2 - lon1);
-            return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+        async function getRoute(lat, lng) {
+            const url = `https://api.mapbox.com/directions/v5/mapbox/walking/${lng},${lat};${DESTINATION[0]},${DESTINATION[1]}?steps=true&geometries=geojson&access_token=${MAPBOX_TOKEN}`;
+            try {
+                const res = await fetch(url);
+                const data = await res.json();
+                if(data.routes && data.routes.length > 0) {
+                    routeCoords = data.routes[0].geometry.coordinates; 
+                    steps = data.routes[0].legs[0].steps;
+                    if(steps.length > 1) steps.shift();
+
+                    const geojson = data.routes[0].geometry;
+                    
+                    // Bug Fix 2: The Safe Drawing Logic
+                    const drawLine = () => {
+                        if (map.getSource('route')) return; // Don't draw twice
+                        
+                        map.addSource('route', { type: 'geojson', data: { type: 'Feature', geometry: geojson } });
+                        map.addLayer({
+                            id: 'route', type: 'line',
+                            source: 'route',
+                            layout: { 'line-join': 'round', 'line-cap': 'round' },
+                            paint: { 'line-color': '#00ff00', 'line-width': 4 }
+                        });
+                    };
+
+                    // Check if map is already loaded. If yes, draw immediately. If no, wait.
+                    if (map.loaded()) {
+                        drawLine();
+                    } else {
+                        map.on('load', drawLine);
+                    }
+                }
+            } catch(e) { 
+                console.error(e); 
+                isFetchingRoute = false; // Reset lock if it fails so it can try again
+            }
+        }
+
+        function getDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371e3;
+            const dLat = (lat2-lat1)*Math.PI/180;
+            const dLon = (lon2-lon1)*Math.PI/180;
+            const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+            return R*2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        }
+
+        function getBearing(lat1, lon1, lat2, lon2) {
+            const dLon = (lon2-lon1)*Math.PI/180;
+            const y = Math.sin(dLon)*Math.cos(lat2*Math.PI/180);
+            const x = Math.cos(lat1*Math.PI/180)*Math.sin(lat2*Math.PI/180) - Math.sin(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.cos(dLon);
+            return (Math.atan2(y, x)*180/Math.PI + 360)%360;
         }
     </script>
 </body>
