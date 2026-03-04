@@ -263,7 +263,7 @@
                 
                 hud.innerHTML = `${instr}<br><span style="font-size:14px; color:#aaa;">In ${Math.round(distToTurn)} meters</span>`;
 
-                if(distToTurn < 15) {
+                if(distToTurn < 8) {
                     hud.style.borderColor = "#00e5ff"; 
                     if(mainArrowModel) mainArrowModel.material.color.setHex(0x00e5ff);
                     if(currentStepIndex < steps.length - 1) currentStepIndex++; 
@@ -345,3 +345,4 @@
     </script>
 </body>
 </html>
+
